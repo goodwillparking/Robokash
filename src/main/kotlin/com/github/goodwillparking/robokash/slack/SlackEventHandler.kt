@@ -13,6 +13,7 @@ import com.github.goodwillparking.robokash.slack.event.UrlVerification
 import com.github.goodwillparking.robokash.util.DefaultSerializer
 import com.github.goodwillparking.robokash.util.DefaultSerializer.deserialize
 import com.github.goodwillparking.robokash.util.ResourceUtil
+import me.xdrop.fuzzywuzzy.FuzzySearch
 import mu.KotlinLogging
 import java.time.Instant
 import kotlin.random.Random
@@ -135,7 +136,9 @@ class SlackEventHandler(
     }
 
     private fun determineResponse(message: Message): String? {
-        fun generateResponse() = responses.values.random()
+        fun generateResponse(message: Message) =
+            responses.values.map { response -> response to FuzzySearch.tokenSortPartialRatio(message.text, response) }
+                .sortedBy { entry -> entry.second }.last().first
         return when {
             responses.values.isEmpty() -> {
                 log.warn { "No responses defined." }
@@ -143,17 +146,17 @@ class SlackEventHandler(
             }
             props.userId in message.mentions -> {
                 log.info { "Bot was mentioned. Skipping roll" }
-                generateResponse()
+                generateResponse(message)
             }
             else -> {
-                val result = role(random, responseProbability)
+                val result = roll(random, responseProbability)
                 log.debug { result }
-                result.takeIf { it.isSuccess }?.let { generateResponse() }
+                result.takeIf { it.isSuccess }?.let { generateResponse(message) }
             }
         }
     }
 
-    private fun role(random: Random, probability: Double): RoleResult {
+    private fun roll(random: Random, probability: Double): RollResult {
         val rolled = random.nextDouble(0.0, 1.0)
         val required = 1.0 - probability
         val success = when (probability) {
@@ -162,7 +165,7 @@ class SlackEventHandler(
             else -> rolled + probability >= 1.0
         }
 
-        return RoleResult(
+        return RollResult(
             required = required,
             actual = rolled,
             isSuccess = success
@@ -175,5 +178,5 @@ class SlackEventHandler(
         log.debug { "Post message result: $result" }
     }
 
-    private data class RoleResult(val required: Double, val actual: Double, val isSuccess: Boolean)
+    private data class RollResult(val required: Double, val actual: Double, val isSuccess: Boolean)
 }
